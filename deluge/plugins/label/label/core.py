@@ -46,6 +46,7 @@ from urlparse import urlparse
 
 import traceback
 import re
+import os
 
 RE_VALID = re.compile("[a-z0-9_\-\.]*\Z")
 
@@ -111,6 +112,12 @@ class Core(CorePluginBase):
 
         self.clean_initial_config()
 
+        self.wait_move_storage_list = {}
+        self.torrent_manager.alerts.register_handler('storage_moved_alert',
+            self.on_alert_storage_moved)
+        self.torrent_manager.alerts.register_handler("storage_moved_failed_alert",
+            self.on_alert_storage_moved_failed)
+
         component.get("EventManager").register_event_handler("TorrentAddedEvent", self.post_torrent_add)
         component.get("EventManager").register_event_handler("TorrentRemovedEvent", self.post_torrent_remove)
 
@@ -121,6 +128,10 @@ class Core(CorePluginBase):
 
     def disable(self):
         self.plugin.deregister_status_field("label")
+        self.torrent_manager.alerts.deregister_handler('storage_moved_alert',
+            self.on_alert_storage_moved)
+        self.torrent_manager.alerts.deregister_handler("storage_moved_failed_alert",
+            self.on_alert_storage_moved_failed)
         component.get("FilterManager").deregister_tree_field("label")
 
     def update(self):
@@ -326,6 +337,58 @@ class Core(CorePluginBase):
 
         self.config.save()
 
+    def on_alert_storage_moved(self, alert):
+        log.debug("on_alert_storage_moved")
+        try:
+            torrent_id = str(alert.handle.info_hash())
+            torrent = self.torrents[torrent_id]
+        except (RuntimeError, KeyError):
+            return
+
+        if torrent_id in self.wait_move_storage_list:
+            config = self.wait_move_storage_list[torrent_id]
+            if os.path.normpath(alert.handle.save_path()) == config['tmpdir']:
+                torrent.move_storage(config['dstdir'])
+            else:
+                os.rmdir(config['tmpdir'])
+                del self.wait_move_storage_list[torrent_id]
+
+    def on_alert_storage_moved_failed(self, alert):
+        log.debug("on_alert_storage_moved_failed")
+        try:
+            torrent_id = str(alert.handle.info_hash())
+            torrent = self.torrents[torrent_id]
+        except (RuntimeError, KeyError):
+            return
+
+        log.error('%s auto move failed' % torrent.torrent_info.name())
+
+    @export
+    def auto_move(self, torrent_id):
+        """
+        """
+        torrent = self.torrents[torrent_id]
+        options = torrent.options
+        info = torrent.torrent_info
+        try:
+            target = info.name().decode('utf8')
+            currpath = os.path.join(options['download_location'], target)
+            tmpdir = os.path.join(options['move_completed_path'], '.%s' % target)
+            dstdir = os.path.join(options['move_completed_path'], target)
+            if not os.path.isdir(currpath):
+                self.wait_move_storage_list[torrent_id] = {
+                    'tmpdir' : tmpdir,
+                    'dstdir' : dstdir
+                }
+                torrent.move_storage(tmpdir)
+            else:
+                torrent.move_storage(options['move_completed_path'])
+        except UnicodeDecodeError:
+            log.error('%s str decode failed' % info.name())
+            pass
+        except:
+            log.error('%s error' % info.name())
+            pass
     @export
     def get_config(self):
         """see : label_set_config"""
@@ -343,6 +406,16 @@ class Core(CorePluginBase):
 
     def _status_get_label(self, torrent_id):
         return self.torrent_labels.get(torrent_id) or ""
+
+    def _dump(self, name, data):
+        log.error('Dump %s:' % name)
+        members = [attr for attr in dir(data) if not attr.startswith("__")]
+        for member in members:
+            if callable(getattr(data, member)):
+                log.error('%s is function' % member)
+            else:
+                log.error('%s is:' % member)
+                log.error(getattr(data, member))
 
 if __name__ == "__main__":
     import test

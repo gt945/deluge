@@ -449,6 +449,7 @@ Deluge.plugins.LabelPlugin = Ext.extend(Deluge.Plugin, {
         delete Deluge.FilterPanel.templates.label;
         this.deregisterTorrentStatus('label');
         deluge.menus.torrent.remove(this.tmSep);
+        deluge.menus.torrent.remove(this.am);
         deluge.menus.torrent.remove(this.tm);
         deluge.preferences.removePage(this.prefsPage);
     },
@@ -456,9 +457,14 @@ Deluge.plugins.LabelPlugin = Ext.extend(Deluge.Plugin, {
     onEnable: function() {
         this.prefsPage = deluge.preferences.addPage(new Deluge.ux.preferences.LabelPage());
         this.torrentMenu = new Ext.menu.Menu();
-
+    
         this.tmSep = deluge.menus.torrent.add({
             xtype: 'menuseparator'
+        });
+
+        this.am = deluge.menus.torrent.add({
+            text: _('Auto Move'),
+            handler: this.onAutoMoveMenuClick
         });
 
         this.tm = deluge.menus.torrent.add({
@@ -584,6 +590,13 @@ Deluge.plugins.LabelPlugin = Ext.extend(Deluge.Plugin, {
             } else {
                 deluge.client.label.set_torrent(id, item.label);
             }
+        });
+    },
+
+    onAutoMoveMenuClick: function(item, e) {
+        var ids = deluge.torrents.getSelectedIds();
+        Ext.each(ids, function(id, i) {
+            deluge.client.label.auto_move(id);
         });
     }
 });
